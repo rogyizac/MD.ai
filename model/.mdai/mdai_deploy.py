@@ -1,4 +1,3 @@
-# Import python packages here
 import numpy as np
 from os import listdir
 import skimage.transform
@@ -20,7 +19,6 @@ import skimage
 from skimage.io import *
 from skimage.transform import *
 
-import scipy
 import scipy.ndimage as ndimage
 import scipy.ndimage.filters as filters
 from scipy.ndimage import binary_dilation
@@ -28,35 +26,38 @@ import glob
 import pydicom
 import re
 
-
 # Import methods from helper files if any here
-from common.util.util import getLatestModel
 from common.config.config import Config as cfg
 
-# torch.manual_seed(0)
+intensity_th = 0.9
+img_width_exp, img_height_exp = 1024, 1024
+img_resize = 256
+crop = 224
+
 
 class DenseNet121(nn.Module):
     """Model modified.
     The architecture of our model is the same as standard DenseNet121
     except the classifier layer which has an additional sigmoid function.
     """
+    
     def __init__(self, out_size):
         super(DenseNet121, self).__init__()
-            
+
         if torch.cuda.is_available():
             print("Cuda is available. Model will run on GPU.")
             device = torch.device("cuda")
         else:
             print("No GPU found. Device will run on CPU.")
             device = torch.device("cpu")
-        
-        self.densenet121 = torchvision.models.densenet121(weights=None)        
+
+        self.densenet121 = torchvision.models.densenet121(weights=None)
         pattern = re.compile(
         r"^(.*denselayer\d+\.(?:norm|relu|conv))\.((?:[12])\.(?:weight|bias|running_mean|running_var))$"
-    )
-        
+        )
+
         state_dict = torch.load(os.path.join(os.path.dirname(os.path.dirname(__file__)), "densenet121-a639ec97.pth"), map_location=device)
-        
+
         for key in list(state_dict.keys()):
             res = pattern.match(key)
             if res:
@@ -64,18 +65,18 @@ class DenseNet121(nn.Module):
                 state_dict[new_key] = state_dict[key]
                 del state_dict[key]
         self.densenet121.load_state_dict(state_dict)
-        
+
         num_ftrs = self.densenet121.classifier.in_features
         self.densenet121.classifier = nn.Sequential(
             nn.Linear(num_ftrs, out_size),
             nn.Sigmoid()
         )
 
-
     def forward(self, x):
         x = self.densenet121(x)
         return x
-    
+
+
 class ChestXrayDataSet_plot(Dataset):
     def __init__(self, test_X, transform=None):
         self.X = np.uint8(test_X*255)
@@ -84,16 +85,18 @@ class ChestXrayDataSet_plot(Dataset):
     def __getitem__(self, index):
         """
         Args:
-            index: the index of item 
+            index: the index of item
         Returns:
-            image 
+            image
         """
         current_X = np.tile(self.X[index],3)
         image = self.transform(current_X)
         return image
+
     def __len__(self):
         return len(self.X)
-    
+
+
 # ======= Grad CAM Function =========
 class PropagationBase(object):
 
@@ -183,28 +186,26 @@ class GradCAM(PropagationBase):
         gcam = gcam / gcam.max() * 255.0
         cv2.imwrite(filename, np.uint8(gcam))
 
+
 class MDAIModel:
+
     def __init__(self):
-        
+
         if torch.cuda.is_available():
             print("Cuda is available. Model will run on GPU.")
             device = torch.device("cuda")
         else:
             print("No GPU found. Device will run on CPU.")
             device = torch.device("cpu")
-        
-        modelpath = os.path.join(os.path.dirname(os.path.dirname(__file__)), "model.pth.tar")
-        
-        # pkl_files = glob.glob(modelpath)
-        # pkl_file = pkl_files[0]
-        
-        # local testing
-        # modelpath = r'C:\IUPUI\PLHILab\AIinRadiology\MDAI-chexnet\model\DenseNet121_aug4_pretrain_WeightBelow1_1_0.829766922537.pkl'
-        self.model = DenseNet121(8)# Load model here
+
+        modelpath = os.path.join(os.path.dirname(os.path.dirname(__file__)), "DenseNet121_aug4_pretrain_WeightBelow1_1_0.829766922537.pkl")
+        pkl_files = glob.glob(modelpath)
+        pkl_file = pkl_files[0]
+
+        self.model = DenseNet121(8)  # Load model here
         self.model = torch.nn.DataParallel(self.model)
-        self.model.load_state_dict(torch.load(modelpath, map_location=device), strict=False)
-    
-    
+        self.model.load_state_dict(torch.load(pkl_file, map_location=device), strict=False)
+
     def predict(self, data):
         """
         See https://github.com/mdai/model-deploy/blob/master/mdai/server.py for details on the
@@ -213,16 +214,7 @@ class MDAIModel:
         input_files = data["files"]
         input_annotations = data["annotations"]
         input_args = data["args"]
-        
-        # local testing
-        # if(pydicom.misc.is_dicom(data)):
-        #     ds = pydicom.read_file(data)
-        #     img = ds.pixel_array
-        # else:
-        #     img = cv2.imread(data, 0)
-        
-        # input_files = [img]
-        
+
         outputs = []
         test_X = []
         thresholds = cfg.CHEXNET_THRESHOLDS
@@ -234,50 +226,42 @@ class MDAIModel:
 
             # Convert dicom to a numpy array of pixels
             image = ds.pixel_array
-            
-            # local testing
-            # image = img            
-            
+
             # Paste code for preprocessing the image here
             if image is not None:
-                if image.shape != (1024,1024):
-                    if len(image.shape)==3 : 
+                if image.shape != (img_width_exp,img_height_exp):
+                    if len(image.shape)==3:
                         img = image[:,:,0]
                     else:
                         img = image[:,:]
-                        
-            img_resize = 256
-            crop = 224
+
             crop_del = int((img_resize - crop)/2)
             rescale_factor = int(image.shape[0]/img_resize)
-            
+
             img_resized = skimage.transform.resize(img,(img_resize,img_resize))
             test_X.append((np.array(img_resized)).reshape(img_resize,img_resize,1))
             test_X = np.array(test_X)
             
+            # preprocess image transforms
             test_dataset = ChestXrayDataSet_plot(test_X = test_X,transform=transforms.Compose([
                                                     transforms.ToPILImage(),
-                                                    transforms.CenterCrop(224),
+                                                    transforms.CenterCrop(crop),
                                                     transforms.ToTensor(),
                                                     transforms.Normalize([0.485, 0.456, 0.406],[0.229, 0.224, 0.225])
                                                     ]))
-            
-            # Paste code for passing the image through the model
-            # and generating predictions here
-
+            # initialize
             heatmap_output = []
             image_id = []
             output_class = []
 
-            #gcam = GradCAM(model=model, cuda=True)
+            # gcam = GradCAM(model=model, cuda=True)
             gcam = GradCAM(model=self.model, cuda=True)
             for index in range(len(test_dataset)):
-                #input_img = Variable((test_dataset[index]).unsqueeze(0).cuda(), requires_grad=True)
                 input_img = Variable((test_dataset[index]).unsqueeze(0), requires_grad=True)
                 probs = gcam.forward(input_img)
                 sorted_index_probs = np.argsort(probs)
                 sorted_probs = np.take(probs, sorted_index_probs)
-                # n = 3 
+                # n = 3
                 n = cfg.MODEL_UPDATE_MIN_THRESHOLD 
                 top_n_probs = np.expand_dims(sorted_probs[0, -n:], 0)
                 print(f"Probabilities : {probs}")
@@ -290,17 +274,9 @@ class MDAIModel:
                 print(f"Sorted Threshold : {sorted_threshold}")
                 print(f"Top N Threshold : {top_n_threhold}")
 
-                #activate_classes = np.where((probs > thresholds)[0]==True)[0] # get the activated class
-                #activate_classes = np.where((top_n_probs > top_n_threhold)[0] == True)[0]
-                #print(thresholds[sorted_index_probs[0, -n:]])
-                # if (top_n_probs[0] > top_n_threhold).all() == True:
-                #     activate_classes = sorted_index_probs[0, -n:]
-                # else:
-                #     activate_classes = []
-                    
                 activate_classes = sorted_index_probs[top_n_probs > top_n_threhold]
                 activate_classes_probs = top_n_probs[top_n_probs > top_n_threhold]
-                
+
                 print(f"Activated Classes : {activate_classes}")
                 for activate_class in activate_classes:
                     gcam.backward(idx=activate_class)
@@ -313,22 +289,11 @@ class MDAIModel:
                     output_class.append(activate_class)
 
             # ======= Plot bounding box =========
-            img_width, img_height = 224, 224
-            img_width_exp, img_height_exp = 1024, 1024
+            img_width, img_height = crop, crop
 
-            # crop_del = 16
-            # rescale_factor = 4
-
-            class_index = ['Atelectasis', 'Cardiomegaly', 'Effusion', 'Infiltration', 'Mass', 'Nodule', 'Pneumonia',
-                'Pneumothorax', 'Consolidation', 'Edema', 'Emphysema', 'Fibrosis', 'Pleural_Thickening', 'Hernia']
-            avg_size = np.array([[411.8, 512.5, 219.0, 139.1], [348.5, 392.3, 479.8, 381.1],
-                                 [396.5, 415.8, 221.6, 318.0], [394.5, 389.1, 294.0, 297.4],
-                                 [411.8, 512.5, 219.0, 139.1], [348.5, 392.3, 479.8, 381.1],
-                                 [396.5, 415.8, 221.6, 318.0], [394.5, 389.1, 294.0, 297.4],
-                                 [434.3, 366.7, 168.7, 189.8], [502.4, 458.7, 71.9, 70.4],
-                                 [434.3, 366.7, 168.7, 189.8], [502.4, 458.7, 71.9, 70.4],
-                                 [378.7, 416.7, 276.5, 304.5], [369.3, 209.4, 198.9, 246.0]])
-
+            class_index = ['Atelectasis', 'Cardiomegaly', 'Effusion',
+                           'Infiltration', 'Mass', 'Nodule', 'Pneumonia',
+                           'Pneumothorax']
 
             prediction_dict = {}
             for i in range(len(input_files)):
@@ -337,16 +302,9 @@ class MDAIModel:
             for img_id, k, npy, cls_prob in zip(image_id, output_class, heatmap_output, activate_classes_probs):
 
                 data = npy
-                # img_fname = test_list[img_id]
-
-                # output avgerge
-                prediction_sent = '%s %.1f %.1f %.1f %.1f' % (class_index[k], avg_size[k][0], avg_size[k][1], avg_size[k][2], avg_size[k][3])
-                # prediction_dict[img_id].append(prediction_sent)
 
                 if np.isnan(data).any():
                     continue
-
-                w_k, h_k = (avg_size[k][2:4] * (256 / 1024)).astype(np.int64)
 
                 # Find local maxima
                 neighborhood_size = 100
@@ -361,45 +319,36 @@ class MDAIModel:
                     maxima = binary_dilation(maxima)
 
                 labeled, num_objects = ndimage.label(maxima)
-                slices = ndimage.find_objects(labeled)
                 xy = np.array(ndimage.center_of_mass(data, labeled, range(1, num_objects+1)))
 
-                for pt in xy:
-                    if data[int(pt[0]), int(pt[1])] > np.max(data)*.9:
-                        upper = int(max(pt[0]-(h_k/2), 0.))
-                        left = int(max(pt[1]-(w_k/2), 0.))
-        
-                        right = int(min(left+w_k, img_width))
-                        lower = int(min(upper+h_k, img_height))
-                        
-                        prediction_sent = '%d %.2f %.1f %.1f %.1f %.1f' % (k, cls_prob, (left+crop_del)*rescale_factor, \
-                                                                                      (upper+crop_del)*rescale_factor, \
-                                                                                      (right-left)*rescale_factor, \
-                                                                                      (lower-upper)*rescale_factor)
-                        
-                        # prediction_sent = '%d %.2f %.1f %.1f %.1f %.1f' % (k, cls_prob, (left+crop_del)*rescale_factor, \
-                        #                                                               (upper+crop_del)*rescale_factor, \
-                        #                                                               (length+crop_del)*rescale_factor, \
-                        #                                                               (breadth+crop_del)*rescale_factor)
+                # create pixel threshold based on intensity
+                thresholded_data_l = (data > np.max(data)*intensity_th).astype(np.int64)
 
+                for point in xy:
+                    centroid_x = int(point[0])
+                    centroid_y = int(point[1])
+
+                    if data[centroid_x, centroid_y] > np.max(data)*.9:
+                        # find box boundaries
+                        left, right, upper, lower = centroid_x, centroid_x, centroid_y, centroid_y
+
+                        # check adjacent pixel value and update coordinate
+                        while left > 0 and thresholded_data_l[max(0, left), centroid_y] == 1:
+                            left -= 1
+                        while right < crop and thresholded_data_l[min(crop, right), centroid_y] == 1:
+                            right += 1
+                        while upper > 0 and thresholded_data_l[centroid_x, max(0, upper)] == 1:
+                            upper -= 1
+                        while lower < crop and thresholded_data_l[centroid_x, min(crop, lower)] == 1:
+                            lower += 1
+
+                        prediction_sent = '%d %.2f %.1f %.1f %.1f %.1f' % (k, cls_prob, (left+crop_del)*rescale_factor,
+                                                                           (upper+crop_del)*rescale_factor,
+                                                                           (right-left)*rescale_factor,
+                                                                           (lower-upper)*rescale_factor)
                         prediction_dict[img_id].append(prediction_sent)
-            #Converting the ouput to coordinates format
-            # images = {}
-            # images["Model_name"] = "CheXnet"
-            # for i in range(len(prediction_dict)):
-            #     boxes = []
-            #     # fname = test_list[i]
-            #     prediction = prediction_dict[i]
-            #     for j in range(len(prediction)):
-            #         box = {"annotationText": prediction[j].split(" ")[0],
-            #                                           "x1" : float(prediction[j].split(" ")[1]),
-            #                                           "y1" : float(prediction[j].split(" ")[2]),
-            #                                           "length" : float(prediction[j].split(" ")[3]),
-            #                                           "breadth": float(prediction[j].split(" ")[4])}
-            #         boxes.append(box)
 
-            print(prediction_dict)
-            
+            # loop through outputs and return
             for i in range(len(prediction_dict)):
                 prediction = prediction_dict[i]
                 print(prediction)
