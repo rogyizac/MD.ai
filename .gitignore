@@ -5,3 +5,5 @@ Pneumothorax/model/epoch_58_fold0.pth
 Pneumothorax/model/epoch_58_fold2.pth
 Pneumothorax/model/epoch_59_fold1.pth
 Pneumothorax/model/epoch_59_fold3.pth
+CXR/model/model.pth.tar
+MURA/model/model.pth
