@@ -1,2 +1,7 @@
 model.zip
 __pycache__/
+CBIS_DDSM_Calcification/model/model.pth
+Pneumothorax/model/epoch_58_fold0.pth
+Pneumothorax/model/epoch_58_fold2.pth
+Pneumothorax/model/epoch_59_fold1.pth
+Pneumothorax/model/epoch_59_fold3.pth
