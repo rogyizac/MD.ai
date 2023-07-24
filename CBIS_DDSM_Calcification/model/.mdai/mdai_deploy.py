@@ -65,9 +65,20 @@ class MDAIModel:
             output = self.model(image)
             # and generating predictions here
             predicted_prob = output.item()
-            threshold = 0.5
-            predicted_class = 1 if predicted_prob >= threshold else 0
-            predicted_prob = 1 - predicted_prob if predicted_class == 0 else predicted_prob
+            if 0 <= predicted_prob < 0.2:
+                predicted_class = 0
+            elif 0.2 <= predicted_prob < 0.4:
+                predicted_class = 1
+            elif 0.4 <= predicted_prob < 0.6:
+                predicted_class = 2
+            elif 0.6 <= predicted_prob < 0.8:
+                predicted_class = 3
+            else:
+                predicted_class = 4
+                
+            # threshold = 0.5
+            # predicted_class = 1 if predicted_prob >= threshold else 0
+            # predicted_prob = 1 - predicted_prob if predicted_class == 0 else predicted_prob
             predicted_prob = round(predicted_prob,2)
 
             result = {

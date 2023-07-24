@@ -187,8 +187,8 @@ class MDAIModel:
                     x, y = minc, minr
                     width, height = maxc - minc, maxr - minr
                     
-                    prediction_sent = '%d %.2f %.1f %.1f %.1f %.1f' % (k, cls_prob, x*rescale_factor,
-                                                           y*rescale_factor,
+                    prediction_sent = '%d %.2f %.1f %.1f %.1f %.1f' % (k, cls_prob, (x+crop_del)*rescale_factor,
+                                                           (y+crop_del)*rescale_factor,
                                                            width*rescale_factor,
                                                            height*rescale_factor)
                     img_id = 0
@@ -197,6 +197,7 @@ class MDAIModel:
             # loop through outputs and return
             for i in range(len(prediction_dict)):
                 prediction = prediction_dict[i]
+                boxes = []
                 print(prediction)
                 for pred in prediction:
                     result = {

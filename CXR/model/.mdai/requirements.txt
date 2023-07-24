@@ -3,5 +3,5 @@ scikit-image==0.19.3
 torch==1.12.1
 torchvision==0.13.1
 pydicom==2.3.0
-grad-cam
+grad-cam==1.4.8
 Pillow==9.5.0
