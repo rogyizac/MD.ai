@@ -133,7 +133,8 @@ class MDAIModel:
             predicted_prob = empty
             
             predicted_prob = 1 - predicted_prob if predicted_class == 0 else predicted_prob
-            predicted_prob = np.round(predicted_prob,2)
+            # predicted_prob = np.round(predicted_prob,2)
+            predicted_prob = float(np.round(predicted_prob,2))
 
             result = {
                 "type": "ANNOTATION",
@@ -142,7 +143,7 @@ class MDAIModel:
                 "instance_uid": str(ds.SOPInstanceUID),
                 "class_index": int(predicted_class),
                 "data": {"mask": mask.tolist()},
-                # "probability": [{"class_index" : predicted_class, "probability" : predicted_prob}]
+                "probability": [{"class_index" : predicted_class, "probability" : predicted_prob}]
             }
 
             outputs_mdai.append(result)
